@@ -1,11 +1,13 @@
 import os, sys, time, math;
 
 import RPi.GPIO as GPIO
+import dbus;
 
 def pinOutput(pinNumber, outputValue):
 	GPIO.output(pinNumber, outputValue);
 
 def pinSetupOutput(pinNumber):
+	print "pinSetupOutput, ", pinNumber;
 	GPIO.setup(pinNumber, GPIO.OUT)   # Set LedPin's mode is output
 	pinOutput(pinNumber, GPIO.LOW)
 	
@@ -24,57 +26,76 @@ IOD01 = None;
 IOD02 = None;
 
 def Setup():
+	GPIO.setwarnings(True);
 	GPIO.setmode(GPIO.BOARD) # Numbers GPIOs by physical location
 	pinSetupOutput(pin_ledActivity);
 	pinSetupOutput(pin_ledErrorActivity);
 	pinSetupInput(pin_switchAutoActivity);
 
 def Destroy():
+	print "Destroy";
 	pinOutput(pin_ledActivity, GPIO.LOW)
 	pinOutput(pin_ledErrorActivity, GPIO.LOW)
 	GPIO.cleanup();
 
 def Shutdown():
+	print "Shutdown";
 	Destroy();
+	commd = "sudo shutdown -P +0.1";
+	print commd;
+	#os.system(commd);
 	
 
 def activityBlinkSlow(pinNumber=pin_ledActivity):
 	pinOutput(pinNumber, GPIO.HIGH);
-	time.sleep(1.2);
+	time.sleep(0.4);
 	pinOutput(pinNumber, GPIO.LOW);
 
 def activityBlinkFast(pinNumber=pin_ledActivity):
 	pinOutput(pinNumber, GPIO.HIGH);
-	time.sleep(0.2);
+	time.sleep(0.1);
 	pinOutput(pinNumber, GPIO.LOW);
 	
-	
-def activityBlinkVeryFastOff(pinNumber=pin_ledActivity):
+def activityBlinkFastOff(pinNumber=pin_ledActivity):
 	pinOutput(pinNumber, GPIO.LOW);
-	time.sleep(0.001);
+	time.sleep(0.1);
 	pinOutput(pinNumber, GPIO.HIGH);
 	
+def activityBlinkVeryFastOff(pinNumber=pin_ledActivity):
+	pinOutput(pinNumber, GPIO.HIGH);
+	time.sleep(0.001);
+	pinOutput(pinNumber, GPIO.LOW);
+	
 def activityBlinkSuccess(pin=pin_ledActivity):
-	for i in range(0,12):
+	for i in range(0,8):
 		activityBlinkFast();
-		time.sleep(0.2);
+		time.sleep(0.1);
 		
 def activityBlinkMiniSuccess(pin=pin_ledActivity):
 	for i in range(0,4):
 		activityBlinkFast();
-		time.sleep(0.2);
+		time.sleep(0.1);
+		
+def activityBlinkMiniSuccessOff(pin=pin_ledActivity):
+	for i in range(0,4):
+		activityBlinkFastOff();
+		time.sleep(0.1);
 		
 def activityBlinkError(msg=None):
 	if msg:
 		print "[SDCC] [ERROR]", msg;
 	for i in range(0,4):
 		activityBlinkFast(pin_ledErrorActivity);
-		time.sleep(0.5);
+		time.sleep(0.3);
 
 def getIODeviceList():
-	return [];
+	dir_base_media = "/media/pi/";
+	return [dir_base_media+x+"/" for x in os.listdir(dir_base_media) if not x.startswith(".") and os.path.isdir(dir_base_media+x)];
 
 def resetIODFound():
+	global IOD01, IOD02;
+	IOD01 = None;
+	IOD02 = None;
 	pass;
 
 def verifyIOD(device):
@@ -84,7 +105,7 @@ def getSwitchAutoActivity():
 	return pinInput(pin_switchAutoActivity);
 
 def Loop():
-	
+	global IOD01, IOD02;
 	print "[SDCC] [INFO] Startup..";
 	activityBlinkSuccess(pin_ledErrorActivity);
 	activityBlinkSuccess();
@@ -113,7 +134,7 @@ def Loop():
 				if len(IODeviceList) == 1:
 					IOD01 = IODeviceList[0];
 					print "[SDCC] [INFO] found first device, setting: ", IOD01;
-					activityBlinkMiniSuccess();
+					activityBlinkMiniSuccessOff();
 				else:
 					activityBlinkError(msg="IOD01 is none but more than one device! Resetting.." + str(IODeviceList));
 					resetIODFound();
@@ -128,11 +149,11 @@ def Loop():
 					if IOD01 == IODeviceList[0]:
 						IOD02 = IODeviceList[0];
 						print "[SDCC] [INFO] found second device, setting: ", IOD02;
-						activityBlinkMiniSuccess();
+						activityBlinkMiniSuccessOff();
 					elif IOD01 == IODeviceList[1]:
 						IOD02 = IODeviceList[0];
 						print "[SDCC] [INFO] found second device, setting: ", IOD02;
-						activityBlinkMiniSuccess();
+						activityBlinkMiniSuccessOff();
 					else:
 						activityBlinkError(msg="About to set IOD02 but IOD01 no longer found!" + str(IODeviceList));
 						resetIODFound();
@@ -147,6 +168,7 @@ def Loop():
 				resetIODFound();
 				continue;
 		
+		print "Looping through files";
 		files_source = {};
 		# for dir+sourcefile
 			# if destination has file:
@@ -157,17 +179,20 @@ def Loop():
 				
 			# {source -> destination }
 		
+		print "Copying files";
 		pinOutput(pin_ledActivity, GPIO.HIGH);
-		
 		for file_source, file_dest in files_source.items():
 			print "copying files ", file_source, " ->", file_dest;
 			activityBlinkVeryFastOff();
 			
-		
+			
+		print "Verifying files";
 		for file_source, file_dest in files_source.items():
 			# verify file
 			pass;
 			
+			
+		"Success, blinking, then shutting down";
 		pinOutput(pin_ledActivity, GPIO.LOW);
 			
 		activityBlinkSuccess();
@@ -175,13 +200,21 @@ def Loop():
 		
 		time.sleep(1);
 		
+		print "Shutting down";
+		
 		Shutdown();
+		break;
 
 
 if __name__ == '__main__':
 	Setup()
+	
+	#print getIODeviceList();
+	#sys.exit();
+	
 	try:
 		Loop();
 	except KeyboardInterrupt:  # When 'Ctrl+C' is pressed, the child program destroy() will be  executed.
-
 		Destroy()
+		
+	print "Loop end";
