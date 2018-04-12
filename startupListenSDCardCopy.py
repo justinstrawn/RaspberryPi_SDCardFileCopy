@@ -41,7 +41,7 @@ def Destroy():
 def Shutdown():
 	print "Shutdown";
 	Destroy();
-	commd = "sudo shutdown -P +0.1";
+	commd = "sudo shutdown --no-wall -P now";
 	print commd;
 	#os.system(commd);
 	
