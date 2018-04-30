@@ -91,18 +91,30 @@ def activityBlinkError(msg=None):
 		activityBlinkFast(pin_ledErrorActivity);
 		time.sleep(0.3);
 
+import subprocess;
 def commandOutput(commd):
 	tempfile = "/home/pi/Desktop/tempcommd.txt"
-	commd = commd + " > "+tempfile;
-	os.system(commd);
-	with open(tempfile,"r") as file:
-		temptext = file.read();
-	return temptext;
+	#return subprocess.check_output(commd.split(" "),stderr=subprocess.STDOUT);
+	
+	o = subprocess.Popen(commd.split(" "), stdout=subprocess.PIPE,stderr=subprocess.PIPE);
+	sout,eout = o.communicate();
+	#print sout, eout;
+	return str(sout)+str(eout);
+	
+	#commd = commd + " &> "+tempfile;
+	#print commd;
+	#os.system(commd);
+	#with open(tempfile,"r") as file:
+	#	temptext = file.read();
+	#return temptext;
 	
 def canReadDir(dir):
 	try:
 		os.listdir(dir);
 	except:
+		return False;
+	#print "COMMAND OUT:", commandOutput("ls "+dir);
+	if "permission denied" in commandOutput("ls "+dir).lower():
 		return False;
 	return True;
 	
@@ -113,6 +125,7 @@ def getIODeviceList():
 	for i in v:
 		#print "TESTLIST:", i, canReadDir(i);# commandOutput("ls " + i);
 		if canReadDir(i):
+			print "found possible: ", i;
 			v2.append(i);
 	v = v2;
 	return v;
