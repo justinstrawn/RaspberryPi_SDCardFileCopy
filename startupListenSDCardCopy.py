@@ -1,3 +1,6 @@
+## /etc/rc.local
+## sudo python ~/Desktop/rpi_sdcardcopy/startupListenSDCardCopy.py
+
 import os, sys, time, math;
 
 import RPi.GPIO as GPIO
@@ -18,9 +21,9 @@ def pinInput(pinNumber):
 	return GPIO.input(pinNumber)
 	
 	
-pin_ledActivity = 12
-pin_ledErrorActivity = 22
-pin_switchAutoActivity = 16
+pin_ledActivity = 36
+pin_ledErrorActivity = 32
+pin_switchAutoActivity = 40
 
 IOD01 = None;
 IOD02 = None;
@@ -43,7 +46,7 @@ def Shutdown():
 	Destroy();
 	commd = "sudo shutdown --no-wall -P now";
 	print commd;
-	#os.system(commd);
+	os.system(commd);
 	
 
 def activityBlinkSlow(pinNumber=pin_ledActivity):
@@ -88,10 +91,32 @@ def activityBlinkError(msg=None):
 		activityBlinkFast(pin_ledErrorActivity);
 		time.sleep(0.3);
 
+def commandOutput(commd):
+	tempfile = "/home/pi/Desktop/tempcommd.txt"
+	commd = commd + " > "+tempfile;
+	os.system(commd);
+	with open(tempfile,"r") as file:
+		temptext = file.read();
+	return temptext;
+	
+def canReadDir(dir):
+	try:
+		os.listdir(dir);
+	except:
+		return False;
+	return True;
+	
 def getIODeviceList():
 	dir_base_media = "/media/pi/";
-	return [dir_base_media+x+"/" for x in os.listdir(dir_base_media) if not x.startswith(".") and os.path.isdir(dir_base_media+x)];
-
+	v =  [dir_base_media+x+"/" for x in os.listdir(dir_base_media) if not x.startswith(".") and os.path.isdir(dir_base_media+x)];
+	v2 = [];
+	for i in v:
+		#print "TESTLIST:", i, canReadDir(i);# commandOutput("ls " + i);
+		if canReadDir(i):
+			v2.append(i);
+	v = v2;
+	return v;
+	
 def resetIODFound():
 	global IOD01, IOD02;
 	IOD01 = None;
@@ -104,6 +129,7 @@ def verifyIOD(device):
 def getSwitchAutoActivity():
 	return pinInput(pin_switchAutoActivity);
 
+import shutil;
 def Loop():
 	global IOD01, IOD02;
 	print "[SDCC] [INFO] Startup..";
@@ -111,10 +137,13 @@ def Loop():
 	activityBlinkSuccess();
 	
 	
+	
+	
 	while 1:
 		time.sleep(1);
 		
 		while not getSwitchAutoActivity():
+			print "NOT AUTO ACTIVITY";
 			pinOutput(pin_ledActivity, GPIO.LOW)
 			pinOutput(pin_ledErrorActivity, GPIO.HIGH)
 			continue;
@@ -147,7 +176,7 @@ def Loop():
 				
 				if len(IODeviceList) == 2:
 					if IOD01 == IODeviceList[0]:
-						IOD02 = IODeviceList[0];
+						IOD02 = IODeviceList[1];
 						print "[SDCC] [INFO] found second device, setting: ", IOD02;
 						activityBlinkMiniSuccessOff();
 					elif IOD01 == IODeviceList[1]:
@@ -167,10 +196,41 @@ def Loop():
 				activityBlinkError(msg="Verify failed " + str(IOD01) + "/" + str(IOD02) + " = " + str(verifyIOD(IOD01)) + "/" + str(verifyIOD(IOD02)) );
 				resetIODFound();
 				continue;
+				
+		def md5file(fname):
+			import hashlib;
+			hash_md5 = hashlib.md5();
+			with open(fname, "rb") as f:
+				for chunk in iter(lambda: f.read(4096), b""):
+						hash_md5.update(chunk);
+			return hash_md5.hexdigest();
 		
-		print "Looping through files";
+		ident_time = time.time();
+		
+		print "Looping through files", IOD01, IOD02;
 		files_source = {};
+		for x in [x for x in os.listdir(IOD01) if not x.startswith(".")]:
 		# for dir+sourcefile
+			if os.path.isdir(IOD01+x):
+				continue;
+				
+			x_dest = x;
+			ext = x[::-1];
+			ext = ext[:ext.find(".")];
+			ext = ext[::-1];
+			
+			print x, "EXT:", ext;
+			
+			if os.path.isfile(IOD02+x):
+				md51 = md5file(IOD01+x);
+				md52 = md5file(IOD02+x);
+				if md51 == md52:
+					print "FOUND SAME FILE, SKIPPING";
+					continue;
+				else:
+					x_dest = x.replace("."+ext,"")+"_"+str(int(ident_time))+"."+ext;
+				
+			files_source[IOD01+x] = IOD02+x_dest;
 			# if destination has file:
 				# if files are same:
 					# skip
@@ -183,20 +243,27 @@ def Loop():
 		pinOutput(pin_ledActivity, GPIO.HIGH);
 		for file_source, file_dest in files_source.items():
 			print "copying files ", file_source, " ->", file_dest;
+			shutil.copy(file_source, file_dest);
 			activityBlinkVeryFastOff();
 			
 			
 		print "Verifying files";
 		for file_source, file_dest in files_source.items():
 			# verify file
+			if not os.path.isfile(file_dest):
+				activityBlinkError(msg="No file verify " + file_source + "/" + file_dest);
+			else:
+				print "FOUND VERIFY FILE", file_dest;
 			pass;
 			
 			
-		"Success, blinking, then shutting down";
+		print "Success, blinking, then shutting down";
 		pinOutput(pin_ledActivity, GPIO.LOW);
 			
 		activityBlinkSuccess();
 		activityBlinkSlow();
+		
+		pinOutput(pin_ledActivity, GPIO.LOW);
 		
 		time.sleep(1);
 		
