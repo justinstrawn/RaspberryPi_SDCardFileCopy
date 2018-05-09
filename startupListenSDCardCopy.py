@@ -1,17 +1,18 @@
-## /etc/rc.local
-## sudo python ~/Desktop/rpi_sdcardcopy/startupListenSDCardCopy.py
+# Justin Strawn 2018
 
 import os, sys, time, math;
 
 import RPi.GPIO as GPIO
 import dbus;
+import subprocess;
+import hashlib;
+import shutil;
 
 def pinOutput(pinNumber, outputValue):
 	GPIO.output(pinNumber, outputValue);
 
 def pinSetupOutput(pinNumber):
-	print "pinSetupOutput, ", pinNumber;
-	GPIO.setup(pinNumber, GPIO.OUT)   # Set LedPin's mode is output
+	GPIO.setup(pinNumber, GPIO.OUT)
 	pinOutput(pinNumber, GPIO.LOW)
 	
 def pinSetupInput(pinNumber):
@@ -36,16 +37,14 @@ def Setup():
 	pinSetupInput(pin_switchAutoActivity);
 
 def Destroy():
-	print "Destroy";
 	pinOutput(pin_ledActivity, GPIO.LOW)
 	pinOutput(pin_ledErrorActivity, GPIO.LOW)
 	GPIO.cleanup();
 
 def Shutdown():
-	print "Shutdown";
+	print "Shutting Down";
 	Destroy();
 	commd = "sudo shutdown --no-wall -P now";
-	print commd;
 	os.system(commd);
 	
 
@@ -91,74 +90,66 @@ def activityBlinkError(msg=None):
 		activityBlinkFast(pin_ledErrorActivity);
 		time.sleep(0.3);
 
-import subprocess;
 def commandOutput(commd):
-	tempfile = "/home/pi/Desktop/tempcommd.txt"
-	#return subprocess.check_output(commd.split(" "),stderr=subprocess.STDOUT);
-	
 	o = subprocess.Popen(commd.split(" "), stdout=subprocess.PIPE,stderr=subprocess.PIPE);
 	sout,eout = o.communicate();
-	#print sout, eout;
 	return str(sout)+str(eout);
 	
-	#commd = commd + " &> "+tempfile;
-	#print commd;
-	#os.system(commd);
-	#with open(tempfile,"r") as file:
-	#	temptext = file.read();
-	#return temptext;
-	
 def canReadDir(dir):
+	# raspbian hacks
 	try:
 		os.listdir(dir);
 	except:
 		return False;
-	#print "COMMAND OUT:", commandOutput("ls "+dir);
-	if "permission denied" in commandOutput("ls "+dir).lower():
+	if "permission denied" in commandOutput("ls -d "+dir).lower():
 		return False;
 	return True;
 	
 def getIODeviceList():
-	dir_base_media = "/media/pi/";
-	v =  [dir_base_media+x+"/" for x in os.listdir(dir_base_media) if not x.startswith(".") and os.path.isdir(dir_base_media+x)];
-	v2 = [];
-	for i in v:
-		#print "TESTLIST:", i, canReadDir(i);# commandOutput("ls " + i);
-		if canReadDir(i):
-			print "found possible: ", i;
-			v2.append(i);
-	v = v2;
-	return v;
+	dir_base_medias = ["/media/pi/"]; 
+	vs = [];
+	for dir_base_media in dir_base_medias:
+		v =  [dir_base_media+x+"/" for x in os.listdir(dir_base_media) if not x.startswith(".") and os.path.isdir(dir_base_media+x) and not x.lower() == "pi"];
+		v2 = [];
+		for i in v:
+			if canReadDir(i):
+				v2.append(i);
+		vs = vs + v2;
+	return vs;
 	
 def resetIODFound():
 	global IOD01, IOD02;
 	IOD01 = None;
 	IOD02 = None;
-	pass;
 
 def verifyIOD(device):
 	return True;
 
 def getSwitchAutoActivity():
 	return pinInput(pin_switchAutoActivity);
+	
+def md5file(fname):
+	hash_md5 = hashlib.md5();
+	with open(fname, "rb") as f:
+		for chunk in iter(lambda: f.read(4096), b""):
+				hash_md5.update(chunk);
+	return hash_md5.hexdigest();
 
-import shutil;
+
+
 def Loop():
 	global IOD01, IOD02;
-	print "[SDCC] [INFO] Startup..";
 	activityBlinkSuccess(pin_ledErrorActivity);
 	activityBlinkSuccess();
-	
-	
-	
 	
 	while 1:
 		time.sleep(1);
 		
 		while not getSwitchAutoActivity():
-			print "NOT AUTO ACTIVITY";
+			print "[SDCC] Waiting for auto activity switch to turn on";
 			pinOutput(pin_ledActivity, GPIO.LOW)
 			pinOutput(pin_ledErrorActivity, GPIO.HIGH)
+			time.sleep(2);
 			continue;
 			
 		pinOutput(pin_ledActivity, GPIO.LOW)
@@ -169,13 +160,13 @@ def Loop():
 			time.sleep(1);
 			IODeviceList = getIODeviceList();
 			if len(IODeviceList) <= 0:
-				print "[SDCC] [INFO] Still waiting for first device";
+				print "[SDCC] Still waiting for first device";
 				continue;
 				
 			if IOD01 == None:
 				if len(IODeviceList) == 1:
 					IOD01 = IODeviceList[0];
-					print "[SDCC] [INFO] found first device, setting: ", IOD01;
+					print "[SDCC] found first device, setting: ", IOD01;
 					activityBlinkMiniSuccessOff();
 				else:
 					activityBlinkError(msg="IOD01 is none but more than one device! Resetting.." + str(IODeviceList));
@@ -184,17 +175,17 @@ def Loop():
 			
 			elif IOD02 == None:
 				if len(IODeviceList) <= 1:
-					print "[SDCC] [INFO] Still waiting for seco device";
+					print "[SDCC] Still waiting for seco device";
 					continue;
 				
 				if len(IODeviceList) == 2:
 					if IOD01 == IODeviceList[0]:
 						IOD02 = IODeviceList[1];
-						print "[SDCC] [INFO] found second device, setting: ", IOD02;
+						print "[SDCC] found second device, setting: ", IOD02;
 						activityBlinkMiniSuccessOff();
 					elif IOD01 == IODeviceList[1]:
 						IOD02 = IODeviceList[0];
-						print "[SDCC] [INFO] found second device, setting: ", IOD02;
+						print "[SDCC] found second device, setting: ", IOD02;
 						activityBlinkMiniSuccessOff();
 					else:
 						activityBlinkError(msg="About to set IOD02 but IOD01 no longer found!" + str(IODeviceList));
@@ -206,24 +197,17 @@ def Loop():
 				continue;
 		
 		if not verifyIOD(IOD01) or not verifyIOD(IOD02):
-				activityBlinkError(msg="Verify failed " + str(IOD01) + "/" + str(IOD02) + " = " + str(verifyIOD(IOD01)) + "/" + str(verifyIOD(IOD02)) );
+				activityBlinkError(msg="Verify failed");
 				resetIODFound();
 				continue;
 				
-		def md5file(fname):
-			import hashlib;
-			hash_md5 = hashlib.md5();
-			with open(fname, "rb") as f:
-				for chunk in iter(lambda: f.read(4096), b""):
-						hash_md5.update(chunk);
-			return hash_md5.hexdigest();
+
 		
 		ident_time = time.time();
 		
-		print "Looping through files", IOD01, IOD02;
+		print "[SDCC] Looping through files", IOD01, IOD02;
 		files_source = {};
 		for x in [x for x in os.listdir(IOD01) if not x.startswith(".")]:
-		# for dir+sourcefile
 			if os.path.isdir(IOD01+x):
 				continue;
 				
@@ -231,46 +215,36 @@ def Loop():
 			ext = x[::-1];
 			ext = ext[:ext.find(".")];
 			ext = ext[::-1];
-			
-			print x, "EXT:", ext;
-			
+
 			if os.path.isfile(IOD02+x):
 				md51 = md5file(IOD01+x);
 				md52 = md5file(IOD02+x);
 				if md51 == md52:
-					print "FOUND SAME FILE, SKIPPING";
+					print "[SDCC] FOUND SAME FILE, SKIPPING";
 					continue;
 				else:
 					x_dest = x.replace("."+ext,"")+"_"+str(int(ident_time))+"."+ext;
 				
 			files_source[IOD01+x] = IOD02+x_dest;
-			# if destination has file:
-				# if files are same:
-					# skip
-				#else
-					# rename to _date
-				
-			# {source -> destination }
 		
-		print "Copying files";
+		print "[SDCC] Copying files";
 		pinOutput(pin_ledActivity, GPIO.HIGH);
 		for file_source, file_dest in files_source.items():
-			print "copying files ", file_source, " ->", file_dest;
+			print "[SDCC] copying file ", file_source, " ->", file_dest;
 			shutil.copy(file_source, file_dest);
 			activityBlinkVeryFastOff();
 			
 			
-		print "Verifying files";
+		print "[SDCC] Verifying files";
 		for file_source, file_dest in files_source.items():
-			# verify file
 			if not os.path.isfile(file_dest):
 				activityBlinkError(msg="No file verify " + file_source + "/" + file_dest);
 			else:
-				print "FOUND VERIFY FILE", file_dest;
+				pass;
 			pass;
 			
 			
-		print "Success, blinking, then shutting down";
+		print "[SDCC] Success..";
 		pinOutput(pin_ledActivity, GPIO.LOW);
 			
 		activityBlinkSuccess();
@@ -279,22 +253,16 @@ def Loop():
 		pinOutput(pin_ledActivity, GPIO.LOW);
 		
 		time.sleep(1);
-		
-		print "Shutting down";
-		
+
 		Shutdown();
 		break;
 
 
 if __name__ == '__main__':
 	Setup()
-	
-	#print getIODeviceList();
-	#sys.exit();
-	
+
 	try:
 		Loop();
-	except KeyboardInterrupt:  # When 'Ctrl+C' is pressed, the child program destroy() will be  executed.
+	except KeyboardInterrupt:
 		Destroy()
 		
-	print "Loop end";
